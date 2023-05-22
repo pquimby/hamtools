@@ -22,7 +22,6 @@ def lotw_fetch(out, qso_time_horizon, details, callsign):
     auth = load_auth(auth_file)
     USERNAME = auth['USERNAME']
     PASSWORD = auth['PASSWORD']
-    #CALLSIGN = auth['CALLSIGN']
     CALLSIGN = callsign
     print(f'   Identified as "{USERNAME}" + "{CALLSIGN}"')
     print(f'   Password as "{"".join(["*"]*len(PASSWORD))}"')
