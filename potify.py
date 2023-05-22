@@ -28,11 +28,38 @@ if __name__ == "__main__":
     
     contacts = []
     for r in log.records:
-        call = r.get("CALL")
-        if call in contacts:
-            print('Found duplicate in log for contact {call}')
-        else:
-            contacts.append(call)
+        remove = False
+        #if current_date == None and r.get("qso_date") != None:
+        #    current_date = r.get("qso_date")
+        #    print(f'Found first date: {current_date}')
+        #date = r.get("qso_date")
+        #if date != current_date and current_date != None:
+        #    print(f'Found additional date: {date}! Was previously {current_date}')
+        #    contacts = []
+        #    current_date = date
+        date = r.get("qso_date")
+        call = r.get("call")
+        band = r.get("band")
+        comment = r.get("comment")
+            
+        sig = (date,call,band)
+        if r.type != "header" and (comment == None or not "pota" in comment.lower()):
+            if date == None or call == None or band == None:
+                print(f'Found log without POTA in comment: {r}, skipping...')
+            else:
+                print(f'Found log without POTA in comment: {date}, {call}, {band}, skipping...')
+            #continue
+            r.set("remove", "true")
+            
+        if sig in contacts:
+            print(f'Found duplicate in log for contact {date}, {call}, {band}, skipping...')
+            #continue
+            #remove = True
+            r.set("remove", "true")
+
+        contacts.append(sig)
+    
+    log.records = [r for r in log.records if not r.get("remove") or r.type == "header"]
     
     print(f'Writing file to {out_path}...')
     log.write(file_out)
