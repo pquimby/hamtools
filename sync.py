@@ -1,15 +1,10 @@
-
+import argparse
 import datetime
 import json
 import requests
 import sys
 import time
-import argparse
 from adif import ADIFFile
-
-#callsign
-#date
-#details
 
 def load_auth(f):
     auth = json.load(f)
@@ -31,7 +26,6 @@ def lotw_fetch(out, qso_time_horizon, details, callsign):
     
     print(f'Fetching logs from LoTW... at {datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")} local')
     
-    #qso_time_horizon = '2023-03-01'
     qso_qslsince = qso_time_horizon # updated since
     qso_qsorxsince = qso_time_horizon # rx since
     
@@ -58,8 +52,6 @@ def lotw_fetch(out, qso_time_horizon, details, callsign):
         print(r.text)
         return None
         
-    #print("   Encoding: ", r.encoding)
-    #print("   Headers:", r.headers)
     print("   Fetch completed successfully in %0.1f seconds"%(end_time-start_time))
     print("   [Done]")
     return r
@@ -72,7 +64,7 @@ if __name__ == "__main__":
                     epilog='End Transmission')
 
     parser.add_argument('-o', '--output_filename')
-    parser.add_argument('-t', '--temp_filename', default="~/.lotw-sync-tmp.adif")
+    parser.add_argument('-t', '--temp_filename', default=".lotw-sync-tmp.adif")
     parser.add_argument("--details", action="store_true", )
     parser.add_argument("--since", default="2023-03-01")
     parser.add_argument("-c", "--callsign", default=None)
@@ -82,9 +74,6 @@ if __name__ == "__main__":
     
     "lotw-sync.py -o ~/output.adif --details"
     
-    #temp_filename = sys.argv[1]
-    #output_filename = sys.argv[2]
-
     temp_filename = args.temp_filename
     output_filename = args.output_filename
     details = args.details
@@ -94,7 +83,7 @@ if __name__ == "__main__":
     callsign = args.callsign
     
     if fetch:
-        out = open(temp_filename, 'w')
+        out = open(temp_filename, 'w+')
         raw = lotw_fetch(out, since, details, callsign)
         if raw == None:
             print("ERROR: Stopping after failed fetch")
@@ -102,14 +91,10 @@ if __name__ == "__main__":
         
         print(f'Starting write to "{temp_filename}" ...')
         found_eoh = False
-        #print(type(raw))
         for line in raw.text.splitlines(True):
             if "PROGRAMID" in line:
                 found_eoh = True
                 print("   Found header...")
-        
-            #if found_eoh == False:
-            #    print(line)
         
             if "<APP_LoTW_EOF>" in line:
                 break
@@ -133,7 +118,7 @@ if __name__ == "__main__":
     print(f'Starting write to "{output_filename}" ...')
     f2 = open(output_filename, "w")
     print(f'   Filtering down to gridsquare: {grid_filter}')
-    filter = lambda r : grid_filter in r.get("MY_GRIDSQUARE")
+    filter = lambda r : (r.get("MY_GRIDSQUARE") and grid_filter in r.get("MY_GRIDSQUARE"))
     adif.write(f2, filter)
     f2.close()
     print('   [DONE]')
