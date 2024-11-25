@@ -5,7 +5,7 @@ import sys
 import urllib.request
 import argparse
 
-ALL_BANDS = ["13cm","70cm", "2m", "6m", "10m", "12m", "15m", "17m", "20m", "30m", "40m", "60m", "80m", "160m","630m","2200m","GHZ","UNK","0m"]
+ALL_BANDS = ["13cm","70cm", "2m", "6m", "10m", "12m", "15m", "17m", "20m", "30m", "40m", "60m", "80m", "160m","630m","2200m","GHZ","UNK","0m", "23cm"]
 MAX_DXCC_NUM = 600
 
 #print(reports)
@@ -19,12 +19,18 @@ def get_pskr_url(callsign):
 '''
 Query PSKReporter for reports and write to file
 '''
-def fetch_reports(tmp_file_path, seconds=900):
+def fetch_reports(tmp_file_path, seconds=60*1, seqno=0, mode="FT8"):
 
     print("Fetching reports...")
 
+    url = f'https://retrieve.pskreporter.info/query?noactive=true&flowStartSeconds=-{seconds}&rronly=true&statistics=true&appcontact=paul.quimby%40gmail.com&mode={mode}'
+    if seqno != 0 and seqno != None:
+        url += f'&lastseqno={seqno}'
+    
+    #url = f'https://pskreporter.info/cgi-bin/pskquery5.pl?encap=1&callback=doNothing&statistics=1&noactive=1&nolocator=1&flowStartSeconds=-{seconds}&mode={mode}&modify=grid&receiverCallsign=FN'
+
     request = urllib.request.Request(
-    f'https://retrieve.pskreporter.info/query?noactive=true&flowStartSeconds=-{seconds}&rronly=true&appcontact=paul.quimby%40gmail.com',
+    url,
     data=None,
     headers={
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
@@ -41,10 +47,13 @@ def fetch_reports(tmp_file_path, seconds=900):
 Load PSKReporter spots from file and return dict
 '''
 def load_reports(tmp_file_path):
-    f = open(tmp_file_path, "r")
+    f = open(tmp_file_path, "r", encoding="UTF-8")
 
     xml_string=f.read()
+#    xml_string = xml_string[18:-5]
     reports=xmltodict.parse(xml_string)
+    #print(reports.keys())
+    #print(reports['js'][10:])
     f.close()
 
     return reports
@@ -60,8 +69,7 @@ def load_logs(paths):
             }
 
     for p in paths:
-        f = open(p, "r")
-        file_in = open(p, "r")
+        file_in = open(p, "r", encoding='utf-8', errors='ignore')
         log = ADIFFile()
         log.parse(file_in, verbose=False)
         file_in.close()
@@ -81,7 +89,7 @@ def load_logs(paths):
             if my_dxcc_number == None:
                 print("skipping over log for no MY_DXCC", r)
                 continue
-            if dxcc_number == None:
+            if dxcc_number == None or dxcc_number == 0:
                 #print("skipping over log for no DXCC", r)
                 continue
 
@@ -90,7 +98,7 @@ def load_logs(paths):
             if not band in ALL_BANDS:
                 print(f"ERROR!!! UNKNOWN BAND: {band}")
                 sys.exit(1)
-            if not int(my_dxcc_number) == 291:
+            if not int(my_dxcc_number) == 291: #TODO ARG
                 continue # skip since I'm a US HAM in my DXCC account
             status = r.get("QSL_RCVD")
             if status == "Y":
@@ -98,7 +106,7 @@ def load_logs(paths):
                 dxcc2status[dxcc_number][band]['LOTW'] += 1
             else:
                 #print(dxcc_number, my_dxcc_number, status)
-                dxcc2status[dxcc_number][band]['IN LOG'] += 1
+                dxcc2status[dxcc_number][band]['IN LOG'] += 1 # TODO ARG (count worked)
     #print("log summary", dxcc2status)
     return dxcc2status
 
@@ -133,6 +141,10 @@ def get_interesting_reports(reports, dxcc2status, bands = None, verbose = False)
         print("Did not receive log status input")
     interesting_reports = []
     odd_reports = []
+    
+    last_sequence_number = int(reports['receptionReports']['lastSequenceNumber']['@value'])
+    print("Last sequence: " + str(last_sequence_number))
+    
     for r in reports['receptionReports']['receptionReport']:
 
         if not "@senderDXCCCode" in r \
@@ -316,6 +328,7 @@ if __name__ == "__main__":
     parser.add_argument('-u', '--url', action='store_true')
     parser.add_argument('--modes', default = [])
     parser.add_argument('-v', '--verbose', action='store_true', help="Print out details like unusual report data")
+    parser.add_argument('-s', metavar="seqno", help="Sequence number to start fetch for PSKReporter")
     args = parser.parse_args()
 
     most_wanted = []
@@ -341,14 +354,16 @@ if __name__ == "__main__":
         dxcc2status = load_logs([args.adi,])
 
     input_file = args.temp_filename
+    seqno = None
+    if "s" in args and args.s != None:
+        seqno = int(args.s)
 
     odd_reports = []
 
     if args.fetch:
-        fetch_reports(input_file)
+        fetch_reports(input_file, seqno=seqno)
 
     reports = load_reports(input_file)
-
     for r in reports['receptionReports']['receptionReport']:
         lookup1 = None
         lookup2 = None
@@ -390,7 +405,7 @@ if __name__ == "__main__":
         #snr = r['@sNR']
         rank = r['@rank']
         dxcc_number = name2dxcc[tx_dxcc_name_strip]
-        print(f"Relevant: {tx_dxcc_code.ljust(4)} {str(name2dxcc[tx_dxcc_name_strip]).ljust(3)} {tx_dxcc_name.ljust(20)[-20:]} {",".join(set(mode))} {",".join(set([format(round(f,3),"6.3f") for f in frequency]))} {",".join(set([get_band(f) for f in frequency]))} #{str(rank).ljust(3)} {tx_callsign.ljust(10)} {tx_locator} heard in {",".join(rx_locator)}")
+        print(f'Relevant: {tx_dxcc_code.ljust(4)} {str(name2dxcc[tx_dxcc_name_strip]).ljust(3)} {tx_dxcc_name.ljust(20)[-20:]} {",".join(set(mode))} {",".join(set([format(round(f,3),"6.3f") for f in frequency]))} {",".join(set([get_band(f) for f in frequency]))} #{str(rank).ljust(3)} {tx_callsign.ljust(10)} {tx_locator} heard in {",".join(rx_locator)}')
         #print(f"{dxcc2status[dxcc_number][band]}")
         if args.url:
             print(f"{get_pskr_url(tx_callsign)}")

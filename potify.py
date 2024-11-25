@@ -36,7 +36,7 @@ if __name__ == "__main__":
             print(f'Found log without comment: {r}, TERMINATING!!! Fix and attempt again.')
             sys.exit(1)
             
-        results = re.search("POTA.*([a-zA-Z]\-\d{4})", comment)
+        results = re.search("POTA\ ([a-zA-Z]{1,2}\-\d{4,5})", comment)
         if results == None:
             print("ERROR: Couldn't find a park in record!!!")
             print(r)
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         print(f'Writing out file for {park} "{log_date}" to {out_path}')
         
         park_log = ADIFFile()
-        park_log.records = [r for r in log.records if r.type == "header" or (not r.get("remove") and r.get("qso_date") == log_date and re.search("([a-zA-Z]\-\d{4})", r.get("comment")).group(1) == park)]
+        park_log.records = [r for r in log.records if r.type == "header" or (not r.get("remove") and r.get("qso_date") == log_date and re.search("([a-zA-Z]{1,2}\-\d{4,5})", r.get("comment")).group(1) == park)]
         park_log.set_all("MY_SIG_INFO", park)
         
         print(f'Writing file to {out_path}...')
