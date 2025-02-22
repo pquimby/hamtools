@@ -1,5 +1,17 @@
-auth.json
+# emacs
 .*~
 *~
+
+# temp files for network requests
 .temp
 .dxcc.adi
+auth.json
+
+# macos
+.DS_Store
+
+#
+test/
+
+# python
+pycache/
