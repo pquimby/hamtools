@@ -1,9 +1,10 @@
 
-from adif import ADIFFile
-import xmltodict
+import argparse
+import json
 import sys
 import urllib.request
-import argparse
+
+from adif import ADIFFile
 
 ALL_BANDS = ["13cm","70cm", "2m", "6m", "10m", "12m", "15m", "17m", "20m", "30m", "40m", "60m", "80m", "160m","630m","2200m","GHZ","UNK","0m", "23cm"]
 MAX_DXCC_NUM = 600
@@ -19,15 +20,17 @@ def get_pskr_url(callsign):
 '''
 Query PSKReporter for reports and write to file
 '''
-def fetch_reports(tmp_file_path, seconds=60*1, seqno=0, mode="FT8"):
+def fetch_reports(tmp_file_path, seconds=60*5, seqno=0, grid="FN"):
 
     print("Fetching reports...")
 
-    url = f'https://retrieve.pskreporter.info/query?noactive=true&flowStartSeconds=-{seconds}&rronly=true&statistics=true&appcontact=paul.quimby%40gmail.com&mode={mode}'
-    if seqno != 0 and seqno != None:
-        url += f'&lastseqno={seqno}'
-    
-    #url = f'https://pskreporter.info/cgi-bin/pskquery5.pl?encap=1&callback=doNothing&statistics=1&noactive=1&nolocator=1&flowStartSeconds=-{seconds}&mode={mode}&modify=grid&receiverCallsign=FN'
+#    url = f'https://retrieve.pskreporter.info/query?noactive=true&flowStartSeconds=-{seconds}&rronly=true&statistics=true&appcontact=paul.quimby%40gmail.com&mode={mode}'
+#    if seqno != 0 and seqno != None:
+#        url += f'&lastseqno={seqno}'
+
+    url = f'https://pskreporter.info/cgi-bin/pskquery5.pl?encap=1&callback=doNothing&statistics=1&noactive=true&rronly=true&nolocator=1&flowStartSeconds=-{seconds}&modify=grid&receiverCallsign={grid}&appcontact=paul.quimby%40gmail.com'
+
+
 
     request = urllib.request.Request(
     url,
@@ -35,7 +38,7 @@ def fetch_reports(tmp_file_path, seconds=60*1, seqno=0, mode="FT8"):
     headers={
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     })
-    r = urllib.request.urlopen(request)
+    r = urllib.request.urlopen(request, timeout=120)
 
     f = open(tmp_file_path, "w")
     f.write(r.read().decode('utf-8'))
@@ -49,11 +52,20 @@ Load PSKReporter spots from file and return dict
 def load_reports(tmp_file_path):
     f = open(tmp_file_path, "r", encoding="UTF-8")
 
-    xml_string=f.read()
-#    xml_string = xml_string[18:-5]
-    reports=xmltodict.parse(xml_string)
-    #print(reports.keys())
-    #print(reports['js'][10:])
+    #xml_string=f.read()
+    #reports=xmltodict.parse(xml_string)
+
+    json_string = f.read()[46:-12] # trim the non-json part of the response
+    #TODO: Feel bad about this hack
+
+    #print(json_string[0:100])
+    #print(json_string[-100:])
+    reports=json.loads(json_string)
+
+    # print("Reports")
+    # print(reports['receptionReport'])
+    # print("[END]")
+
     f.close()
 
     return reports
@@ -65,7 +77,8 @@ def load_logs(paths):
         for band in ALL_BANDS:
             dxcc2status[i][band] = {
                 "LOTW": 0,
-                "IN LOG": 0
+                "IN LOG": 0,
+                "lotw-example": None
             }
 
     for p in paths:
@@ -104,6 +117,7 @@ def load_logs(paths):
             if status == "Y":
                 #print(dxcc_number, my_dxcc_number, status)
                 dxcc2status[dxcc_number][band]['LOTW'] += 1
+                dxcc2status[dxcc_number][band]['lotw-example'] = r
             else:
                 #print(dxcc_number, my_dxcc_number, status)
                 dxcc2status[dxcc_number][band]['IN LOG'] += 1 # TODO ARG (count worked)
@@ -141,47 +155,45 @@ def get_interesting_reports(reports, dxcc2status, bands = None, verbose = False)
         print("Did not receive log status input")
     interesting_reports = []
     odd_reports = []
-    
-    last_sequence_number = int(reports['receptionReports']['lastSequenceNumber']['@value'])
-    print("Last sequence: " + str(last_sequence_number))
-    
-    for r in reports['receptionReports']['receptionReport']:
 
-        if not "@senderDXCCCode" in r \
-            or not "@senderDXCC" in r \
-            or not "@receiverLocator" in r \
-            or not "@senderLocator" in r \
-            or not "@frequency" in r:
+    #last_sequence_number = int(reports['receptionReports']['lastSequenceNumber']['value'])
+    #print("Last sequence: " + str(last_sequence_number))
+    for r in reports['receptionReport']:
+        if not "senderDXCCCode" in r \
+            or not "senderDXCC" in r \
+            or not "receiverLocator" in r \
+            or not "senderLocator" in r \
+            or not "frequency" in r:
 
-            if not "@frequency" in r:
+            if not "frequency" in r:
                 continue # skip the frequency-less reports
 
             if verbose:
                 print("ODD SITUATION: ", r)
-            if not r["@senderCallsign"] in ["D1FF",]:
+            if not r["senderCallsign"] in ["D1FF",]:
                 odd_reports.append(r)
             continue
 
-        rx_locator = r["@receiverLocator"]
-        tx_dxcc_code = r["@senderDXCCCode"]
-        tx_dxcc_name = name_strip(r["@senderDXCC"])
-        tx_callsign = r["@senderCallsign"]
+        rx_locator = r["receiverLocator"]
+        tx_dxcc_code = r["senderDXCCCode"]
+        tx_dxcc_name = name_strip(r["senderDXCC"])
+        tx_callsign = r["senderCallsign"]
         tx_locator = "UNK"
-        if "@senderLocator" in r.keys():
-            tx_locator = r["@senderLocator"]
+        if "senderLocator" in r.keys():
+            tx_locator = r["senderLocator"]
         else:
-            r["@senderLocator"] = tx_locator
+            r["senderLocator"] = tx_locator
 
-        mode = r["@mode"]
+        mode = r["mode"]
         frequency = "UNKNOWN"
         band = None
-        if "@frequency" in r:
-            #frequency = str(int(r["@frequency"])/1000000).rjust(10)
-            frequency = int(r["@frequency"])/1000000
-            r["@frequency"] = frequency
-            band = get_band(r["@frequency"])
-            r["@band"] = band
-        snr = r['@sNR']
+        if "frequency" in r:
+            #frequency = str(int(r["frequency"])/1000000).rjust(10)
+            frequency = int(r["frequency"])/1000000
+            r["frequency"] = frequency
+            band = get_band(r["frequency"])
+            r["band"] = band
+        snr = r['sNR']
         #print(name2dxcc)
 
         if tx_dxcc_name not in name2dxcc.keys():
@@ -213,7 +225,7 @@ def get_interesting_reports(reports, dxcc2status, bands = None, verbose = False)
         if rank == None:
             print(f"Using #200 priority for report from {tx_dxcc_code}")
             rank = 200
-        r['@rank'] = rank
+        r['rank'] = rank
 
         if dxcc2status and lotw_confirmed:
             # relevant!
@@ -226,9 +238,9 @@ def get_interesting_reports(reports, dxcc2status, bands = None, verbose = False)
         # filter out reports not near rx of interest / add info
         if not relevant_rx(rx_locator, args.rx_grids):
             continue
-        #     r["@hearable"] = False
+        #     r["hearable"] = False
         # else:
-        #     r["@hearable"] = True
+        #     r["hearable"] = True
 
         if bands and band and not band in bands:
             continue
@@ -241,32 +253,32 @@ def get_interesting_reports(reports, dxcc2status, bands = None, verbose = False)
 def get_interesting_dx(interesting_reports):
     interesting_dx = {}
     for r in interesting_reports:
-        rx_locator = r["@receiverLocator"]
-        tx_dxcc_code = r["@senderDXCCCode"]
-        tx_dxcc_name = r["@senderDXCC"]
-        tx_callsign = r["@senderCallsign"]
-        tx_locator = r["@senderLocator"]
-        mode = r["@mode"]
-        frequency = r["@frequency"]
-        snr = r['@sNR']
-        rank = r['@rank']
-        band = r['@band']
+        rx_locator = r["receiverLocator"]
+        tx_dxcc_code = r["senderDXCCCode"]
+        tx_dxcc_name = r["senderDXCC"]
+        tx_callsign = r["senderCallsign"]
+        tx_locator = r["senderLocator"]
+        mode = r["mode"]
+        frequency = r["frequency"]
+        snr = r['sNR']
+        rank = r['rank']
+        band = r['band']
         if not tx_callsign in interesting_dx.keys():
             interesting_dx[tx_callsign] = {
-                    "@senderDXCCCode": tx_dxcc_code,
-                    "@senderDXCC": tx_dxcc_name,
-                    "@senderCallsign": tx_callsign,
-                    "@mode": [mode,],
-                    "@frequency": [frequency,],
-                    "@rank": rank,
-                    "@receiverLocator": [rx_locator[0:4]],
-                    "@senderLocator": tx_locator[0:4],
-                    "@band": band
+                    "senderDXCCCode": tx_dxcc_code,
+                    "senderDXCC": tx_dxcc_name,
+                    "senderCallsign": tx_callsign,
+                    "mode": [mode,],
+                    "frequency": [frequency,],
+                    "rank": rank,
+                    "receiverLocator": [rx_locator[0:4]],
+                    "senderLocator": tx_locator[0:4],
+                    "band": band
             }
         else:
-            interesting_dx[tx_callsign]['@receiverLocator'].append(rx_locator[0:4])
-            interesting_dx[tx_callsign]['@mode'].append(mode)
-            interesting_dx[tx_callsign]['@frequency'].append(frequency)
+            interesting_dx[tx_callsign]['receiverLocator'].append(rx_locator[0:4])
+            interesting_dx[tx_callsign]['mode'].append(mode)
+            interesting_dx[tx_callsign]['frequency'].append(frequency)
 
     return interesting_dx
 
@@ -329,6 +341,8 @@ if __name__ == "__main__":
     parser.add_argument('--modes', default = [])
     parser.add_argument('-v', '--verbose', action='store_true', help="Print out details like unusual report data")
     parser.add_argument('-s', metavar="seqno", help="Sequence number to start fetch for PSKReporter")
+
+    parser.add_argument('--dxcc', action='store_true', help="Write out a .dxcc.adi file")
     args = parser.parse_args()
 
     most_wanted = []
@@ -358,23 +372,33 @@ if __name__ == "__main__":
     if "s" in args and args.s != None:
         seqno = int(args.s)
 
+    dxcc_log = ADIFFile()
+    dxcc_file = open(".dxcc.adi", "w")
+    for v, k in enumerate(dxcc2status):
+        for v2, b in enumerate(dxcc2status[k]):
+            example = dxcc2status[k][b]['lotw-example']
+            if example:
+                dxcc_log.records.append(example)
+    dxcc_log.write(dxcc_file)
+    dxcc_file.close()
+
     odd_reports = []
 
     if args.fetch:
         fetch_reports(input_file, seqno=seqno)
 
     reports = load_reports(input_file)
-    for r in reports['receptionReports']['receptionReport']:
+    for r in reports['receptionReport']:
         lookup1 = None
         lookup2 = None
-        if "@senderDXCC" in r.keys():
-            tx_dxcc = name_strip(r["@senderDXCC"])
+        if "senderDXCC" in r.keys():
+            tx_dxcc = name_strip(r["senderDXCC"])
             if tx_dxcc in name2dxcc.keys():
                 lookup1 = name2dxcc[tx_dxcc]
             else:
-                print("UNKNOWN DXCC", name_strip(r["@senderDXCC"]))
-        if "@receiverDXCC" in r.keys():
-            rx_dxcc = name_strip(r["@receiverDXCC"])
+                print("UNKNOWN DXCC", name_strip(r["senderDXCC"]))
+        if "receiverDXCC" in r.keys():
+            rx_dxcc = name_strip(r["receiverDXCC"])
             if rx_dxcc in name2dxcc.keys():
                 lookup2 = name2dxcc[rx_dxcc]
             else:
@@ -382,30 +406,31 @@ if __name__ == "__main__":
 
 #    print(reports['receptionReports']['receptionReport'])
 
-    interesting_reports, odd_reports = get_interesting_reports(reports, dxcc2status, bands = ["80m","40m","30m","20m","17m","15m","12m","10m","6m"], verbose=args.verbose)
+    interesting_reports, odd_reports = get_interesting_reports(reports, dxcc2status, bands = ["160m","80m","40m","30m","20m","17m","15m","12m","10m","6m"], verbose=args.verbose)
 
     interesting_dx = get_interesting_dx(interesting_reports)
 
-    report_count = len(reports['receptionReports']['receptionReport'])
+    report_count = len(reports['receptionReport'])
     interesting_report_count = len(interesting_reports)
 
     print(f'Fetched {report_count} reports. {interesting_report_count}/{report_count} ({round(interesting_report_count*100.0/report_count,1)}%) interesting')
     print()
 
-    for r in sorted(interesting_dx.values(), key=lambda r: (r["@rank"], r["@senderCallsign"])):
-        rx_locator = r["@receiverLocator"]
-        tx_dxcc_code = r["@senderDXCCCode"]
-        tx_dxcc_name = r["@senderDXCC"]
+    print('          Code DXCC Name                Mode Freq Band Rank Callsign   Grid          Grid')
+    for r in sorted(interesting_dx.values(), key=lambda r: (r["frequency"], r["senderCallsign"])):
+        rx_locator = r["receiverLocator"]
+        tx_dxcc_code = r["senderDXCCCode"]
+        tx_dxcc_name = r["senderDXCC"]
         tx_dxcc_name_strip = name_strip(tx_dxcc_name)
-        tx_callsign = r["@senderCallsign"]
-        tx_locator = r["@senderLocator"]
-        mode = r["@mode"]
-        frequency = r["@frequency"]
-        band = r["@band"]
-        #snr = r['@sNR']
-        rank = r['@rank']
+        tx_callsign = r["senderCallsign"]
+        tx_locator = r["senderLocator"]
+        mode = r["mode"]
+        frequency = r["frequency"]
+        band = r["band"]
+        #snr = r['sNR']
+        rank = r['rank']
         dxcc_number = name2dxcc[tx_dxcc_name_strip]
-        print(f'Relevant: {tx_dxcc_code.ljust(4)} {str(name2dxcc[tx_dxcc_name_strip]).ljust(3)} {tx_dxcc_name.ljust(20)[-20:]} {",".join(set(mode))} {",".join(set([format(round(f,3),"6.3f") for f in frequency]))} {",".join(set([get_band(f) for f in frequency]))} #{str(rank).ljust(3)} {tx_callsign.ljust(10)} {tx_locator} heard in {",".join(rx_locator)}')
+        print(f'Relevant: {tx_dxcc_code.ljust(4)} {str(name2dxcc[tx_dxcc_name_strip]).ljust(3)} {tx_dxcc_name.ljust(20)[-20:]} {",".join(set(mode))} {",".join(set([format(round(f,3),"6.3f") for f in frequency]))} {",".join(set([get_band(f) for f in frequency]))} #{str(rank).ljust(3)} {tx_callsign.ljust(10)} {tx_locator} heard in {",".join(sorted(rx_locator)[0:20])}')
         #print(f"{dxcc2status[dxcc_number][band]}")
         if args.url:
             print(f"{get_pskr_url(tx_callsign)}")
@@ -416,8 +441,8 @@ if __name__ == "__main__":
         odd_summary = {}
         for o in odd_reports:
             summary = {}
-            callsign = o["@senderCallsign"]
-            summary["@senderCallsign"] = callsign
+            callsign = o["senderCallsign"]
+            summary["senderCallsign"] = callsign
             odd_summary[callsign] = summary
 
         for k,v in enumerate(odd_summary):
