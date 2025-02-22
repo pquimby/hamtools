@@ -4,7 +4,9 @@
 WARNING: This script queries the PSKRerporter website.
 The authors of PSKReporter.info request respectful load on their servers.
 
-Please read about the --fetch option and rate limit yourself to avoid any issues.
+Please use the --fetch option and rate limit yourself to avoid any issues.
+You can run the script multiple times without re-fetching since the results are
+cached locally in the .
 
 If you are not respectful of our friends at PSKReporter, they will hunt you down,
 tie you to a chair, and force you to listen to colonoscopy stories on 7.200 MHz
@@ -13,6 +15,13 @@ for the rest of your life.
 The original purpose of this script was to decrease the load on the PSKReporter
 servers because having many tabs open at once generates a lot of queries that
 are not really useful, and it could be done with just one query.
+
+Note: There are some weaknesses in string matching that arise when PSKReporter
+reports DXCC names differently than LoTW. This is fixed by adding entries
+to the dxcc.txt file for each DXCC entity.
+
+Note: There are sometimes unranked DXCC entries. You can add entries into the
+most_wanted.txt file to set a rank for these.
 '''
 
 import argparse
@@ -77,22 +86,58 @@ def fetch_reports(tmp_file_path, app_contact, seconds=60*5, grid="FN"):
         data=None,
         headers={'User-Agent': user_agent}
     )
-    r = urllib.request.urlopen(request, timeout=120)
 
-    with open(tmp_file_path, "w") as f:
-        f.write(r.read().decode('utf-8'))
+    try:
+        r = urllib.request.urlopen(request, timeout=120)
 
-    print("   [Done]")
+        try:
+            with open(tmp_file_path, "w") as f:
+                f.write(r.read().decode('utf-8'))
+            print("   [Done]")
+        except IOError as e:
+            print(f"Error writing to temporary file {tmp_file_path}: {e}")
+            raise
+        except UnicodeDecodeError as e:
+            print(f"Error decoding response from PSKReporter: {e}")
+            raise
 
+    except urllib.error.URLError as e:
+        print(f"Error connecting to PSKReporter: {e}")
+        raise
+    except urllib.error.HTTPError as e:
+        print(f"HTTP error from PSKReporter (code {e.code}): {e.reason}")
+        raise
+    except TimeoutError:
+        print("Timeout while connecting to PSKReporter")
+        raise
+    except Exception as e:
+        print(f"Unexpected error fetching reports: {e}")
+        raise
 
 def load_reports(tmp_file_path):
     """Load PSKReporter spots from file and return dict."""
-    with open(tmp_file_path, "r", encoding="UTF-8") as f:
-        # trim the non-json part of the response
-        json_string = f.read()[46:-12]
-        reports = json.loads(json_string)
-        return reports
-
+    try:
+        with open(tmp_file_path, "r", encoding="UTF-8") as f:
+            try:
+                # trim the non-json part of the response
+                json_string = f.read()[46:-12]
+                reports = json.loads(json_string)
+                return reports
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON from PSKReporter response: {e}")
+                raise
+            except IndexError as e:
+                print(f"Error trimming PSKReporter response - response format may have changed: {e}")
+                raise
+            except Exception as e:
+                print(f"Unexpected error processing PSKReporter response: {e}")
+                raise
+    except IOError as e:
+        print(f"Error reading temporary file {tmp_file_path}: {e}")
+        raise
+    except Exception as e:
+        print(f"Unexpected error loading reports: {e}")
+        raise
 
 def load_logs(paths) -> Dict[int, Dict[str, Dict[str, Any]]]:
     """Load log files and return a dictionary of DXCC status."""
@@ -107,49 +152,60 @@ def load_logs(paths) -> Dict[int, Dict[str, Dict[str, Any]]]:
             }
 
     for p in paths:
-        file_in = open(p, "r", encoding='utf-8', errors='ignore')
-        log = ADIFFile()
-        log.parse(file_in, verbose=False)
-        file_in.close()
+        try:
+            with open(p, "r", encoding='utf-8', errors='ignore') as file_in:
+                try:
+                    log = ADIFFile()
+                    log.parse(file_in, verbose=False)
+                except Exception as e:
+                    print(f"Error parsing ADIF file {p}: {e}")
+                    continue
 
-        for r in log.records:
-            if r.type == "header":
-                continue
+            for r in log.records:
+                if r.type == "header":
+                    continue
 
-            dxcc_number = r.get("DXCC")
-            my_dxcc_number = r.get("MY_DXCC")
-            if dxcc_number:
-                dxcc_number = int(dxcc_number)
-            if my_dxcc_number:
-                my_dxcc_number = int(my_dxcc_number)
-            band = r.get("BAND").lower()
+                dxcc_number = r.get("DXCC")
+                my_dxcc_number = r.get("MY_DXCC")
+                if dxcc_number:
+                    dxcc_number = int(dxcc_number)
+                if my_dxcc_number:
+                    my_dxcc_number = int(my_dxcc_number)
+                band = r.get("BAND").lower()
 
-            if my_dxcc_number is None:
-                print("skipping over log for no MY_DXCC", r)
-                continue
-            if dxcc_number is None or dxcc_number == 0:
-                # print("skipping over log for no DXCC", r)
-                continue
+                if my_dxcc_number is None:
+                    print("skipping over log for no MY_DXCC", r)
+                    continue
+                if dxcc_number is None or dxcc_number == 0:
+                    # print("skipping over log for no DXCC", r)
+                    continue
 
-            if band is None:
-                print(f"QSO in log without band: {r}")
-            if band not in ALL_BANDS:
-                print(f"ERROR!!! UNKNOWN BAND: {band}")
-                sys.exit(1)
-            if not int(my_dxcc_number) == args.my_dxcc_num:
-                continue  # skip since I'm a US HAM in my DXCC account
-            status = r.get("QSL_RCVD")
-            if status == "Y":
-                dxcc2status[dxcc_number][band]['LOTW'] += 1
-                dxcc2status[dxcc_number][band]['lotw-example'] = r
-            else:
-                # print(dxcc_number, my_dxcc_number, status)
-                dxcc2status[dxcc_number][band]['IN LOG'] += 1  # TODO: ARG (count worked)
+                if band is None:
+                    print(f"QSO in log without band: {r}")
+                if band not in ALL_BANDS:
+                    print(f"ERROR!!! UNKNOWN BAND: {band}")
+                    sys.exit(1)
+                if not int(my_dxcc_number) == args.my_dxcc_num:
+                    continue  # skip since I'm a US HAM in my DXCC account
+                status = r.get("QSL_RCVD")
+                if status == "Y":
+                    dxcc2status[dxcc_number][band]['LOTW'] += 1
+                    dxcc2status[dxcc_number][band]['lotw-example'] = r
+                else:
+                    # print(dxcc_number, my_dxcc_number, status)
+                    dxcc2status[dxcc_number][band]['IN LOG'] += 1  # TODO: ARG (count worked)
+        except IOError as e:
+            print(f"Error opening log file {p}: {e}")
+            continue
+        except Exception as e:
+            print(f"Unexpected error processing log file {p}: {e}")
+            continue
     # print("log summary", dxcc2status)
     return dxcc2status
 
 
 def relevant_rx(grid, grids):
+    """Return relevant reports based on receiver grid."""
     if grids is None or grids == []:
         return True
 
@@ -162,6 +218,7 @@ def relevant_rx(grid, grids):
 
 
 def get_rank(tx_dxcc_code, most_wanted):
+    """Get the rank of a DXCC entity based on its code."""
     lookup = [i for i, x in enumerate(most_wanted) if x == tx_dxcc_code]
     if not lookup:
         return None
@@ -169,9 +226,13 @@ def get_rank(tx_dxcc_code, most_wanted):
 
 
 def relevant_tx(dxcc, most_wanted):
+    """Determine if a DXCC entity is relevant based on its rank."""
     rank = get_rank(dxcc, most_wanted)
-
-    if rank is None or rank < 300:
+    # Return True if rank is None or less than max_rank
+    # Lower ranks are more desirable DX entities (rank 1 = most wanted)
+    # max_rank represents the worldwide rank threshold of the least interesting
+    # DX entity to report
+    if rank is None or rank < args.max_rank:
         return True
 
     return False
@@ -353,12 +414,12 @@ if __name__ == "__main__":
                     description="Fetches and analyzes PSKReporter spots for DX",
                     epilog='End Transmission')
 
-    parser.add_argument('-f', '--fetch', action="store_true")
+    parser.add_argument('-f', '--fetch', action="store_true", help="Fetch PSKReporter data from the server instead of using the cache.")
     parser.add_argument('--app_contact', default="not-provided", help="Email address to use for PSKReporter API")
-    parser.add_argument('--adi', help="Path to ADIF file containing log to use for finding useful DX")
+    parser.add_argument('--adi', help="Path to your LoTW ADIF file containing log to use for finding useful DX")
     parser.add_argument('--rx_grids', default=None, help="Comma-separated list of grids to filter reports by")
     parser.add_argument('-u', '--url', action='store_true', help="Print PSK URLs for each report")
-    parser.add_argument('--modes', default=[])
+    parser.add_argument('--modes', default=[]) #TODO: Implement
     parser.add_argument(
         '-v', '--verbose',
         action='store_true',
@@ -382,7 +443,8 @@ if __name__ == "__main__":
     parser.add_argument(
         '-t', '--temp_filename',
         required=True,
-        default=".pskr-tmp.xml"
+        default=".pskr-tmp.xml",
+        help="Path to the temporary file containing PSKReporter data after fetch to avoid re-fetching (use --fetch to fetch)"
     )
     parser.add_argument(
         '--my_dxcc_num',
@@ -390,17 +452,37 @@ if __name__ == "__main__":
         default=291,
         help="DXCC number of the user for filtering, since only home DXCC contacts count. (USA = 291)"
     )
+    parser.add_argument(
+        '--max_rank',
+        type=int,
+        default=300,
+        help="Maximum rank of DX entities to report if no --adi. 300 is the default."
+    )
     args = parser.parse_args()
 
     most_wanted = []
-    most_wanted_file = open("most_wanted.txt", "r", encoding="utf-8")
+    try:
+        most_wanted_file = open("most_wanted.txt", "r", encoding="utf-8")
+    except IOError as e:
+        print(f"Error opening most_wanted.txt file: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error opening most_wanted.txt: {e}")
+        sys.exit(1)
     for line in most_wanted_file:
         items = line.split(" ")
         most_wanted.append(items[1])
 
     dxcc2name = {}
     name2dxcc = {}
-    dxcc_file = open("dxcc.txt", "r", encoding="utf-8")
+    try:
+        dxcc_file = open("dxcc.txt", "r", encoding="utf-8")
+    except IOError as e:
+        print(f"Error opening dxcc.txt file: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error opening dxcc.txt: {e}")
+        sys.exit(1)
     for line in dxcc_file:
         items = line.split(",")
         dxcc_number = int(items[0])
