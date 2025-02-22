@@ -1,6 +1,5 @@
-"""Tools for analyzing PSKReporter spots and identifying DX opportunities."""
+"""Tools for analyzing PSKReporter spots and identifying DX opportunities.
 
-'''
 WARNING: This script queries the PSKRerporter website.
 The authors of PSKReporter.info request respectful load on their servers.
 
@@ -24,7 +23,7 @@ to the dxcc.txt file for each DXCC entity.
 
 Note: There are sometimes unranked DXCC entries. You can add entries into the
 most_wanted.txt file to set a rank for these.
-'''
+"""
 
 import argparse
 import json

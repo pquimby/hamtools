@@ -5,6 +5,7 @@
 # temp files for network requests
 .temp
 .dxcc.adi
+.lotw-tmp.adi
 auth.json
 
 # macos
