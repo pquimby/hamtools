@@ -16,6 +16,8 @@ The original purpose of this script was to decrease the load on the PSKReporter
 servers because having many tabs open at once generates a lot of queries that
 are not really useful, and it could be done with just one query.
 
+Note: This script assumes that the input ADIF (if used) is from LoTW for QSL status.
+
 Note: There are some weaknesses in string matching that arise when PSKReporter
 reports DXCC names differently than LoTW. This is fixed by adding entries
 to the dxcc.txt file for each DXCC entity.
@@ -44,7 +46,7 @@ HF_BANDS = [
     "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"
 ]
 MAX_DXCC_NUM = 600
-IGNORED_CALLSIGNS = ["D1FF"] # Certian callsigns are annoying and not DX
+IGNORED_CALLSIGNS = ["D1FF"] # Certain callsigns are annoying and not DX
 
 def dxcc_name_strip(dxcc_input):
     """Strip and normalize DXCC entity names for consistent comparison."""
@@ -56,7 +58,7 @@ def dxcc_name_strip(dxcc_input):
 
 
 def get_pskr_url(callsign, timerange=900):
-    """Generate a PSKReporter URL for viewing spots for a given callsign."""
+    """Generate a PSKReporter URL for viewing spots for a given callsign within the last timerange seconds."""
     return (
         f"https://pskreporter.info/pskmap.html?preset&callsign={callsign}"
         f"&timerange={timerange}&hideunrec=1&blankifnone=1&hidepink=1"
@@ -65,15 +67,15 @@ def get_pskr_url(callsign, timerange=900):
 
 
 def fetch_reports(tmp_file_path, app_contact, seconds=60*5, grid="FN"):
-    """Query PSKReporter for reports and write to file."""
+    """Query PSKReporter for reports in the last N seconds for a given grid and write to a filepath."""
     print("Fetching reports...")
-
+    email = app_contact
     url = (
         'https://pskreporter.info/cgi-bin/pskquery5.pl?'
         'encap=1&callback=doNothing&statistics=1&noactive=true&'
         f'rronly=true&nolocator=1&flowStartSeconds=-{seconds}&'
         f'modify=grid&receiverCallsign={grid}&'
-        'appcontact={app_contact}'
+        'appcontact={email}'
     )
 
     user_agent = (
@@ -140,7 +142,7 @@ def load_reports(tmp_file_path):
         raise
 
 def load_logs(paths) -> Dict[int, Dict[str, Dict[str, Any]]]:
-    """Load log files and return a dictionary of DXCC status."""
+    """Load log files and return a dictionary of DXCC statuses."""
     dxcc2status: Dict[int, Dict[str, Dict[str, Any]]] = {}
     for i in range(1, MAX_DXCC_NUM):
         dxcc2status[i] = {}
@@ -205,7 +207,7 @@ def load_logs(paths) -> Dict[int, Dict[str, Dict[str, Any]]]:
 
 
 def relevant_rx(grid, grids):
-    """Return relevant reports based on receiver grid."""
+    """Return relevant reports based on receiver grid string of comma-separated grids."""
     if grids is None or grids == []:
         return True
 
@@ -239,6 +241,7 @@ def relevant_tx(dxcc, most_wanted):
 
 
 def get_interesting_reports(reports, dxcc2status, bands=None, verbose=False):
+    """Return a list of reports that are interesting based on the receiver grid, band, and DXCC status."""
     if not dxcc2status:
         print("Did not receive log status input")
     interesting_reports = []
@@ -310,14 +313,13 @@ def get_interesting_reports(reports, dxcc2status, bands=None, verbose=False):
         r['rank'] = rank
 
         if dxcc2status and lotw_confirmed:
-            # relevant!
             continue
         if dxcc2status is None:
             if not relevant_tx(tx_dxcc_code, most_wanted):
                 continue
 
         # filter out reports not near rx of interest / add info
-        if not relevant_rx(rx_locator, args.rx_grids):
+        if not relevant_rx(rx_locator, args.rx_grid):
             continue
 
         if bands and band and band not in bands:
@@ -363,6 +365,7 @@ def get_interesting_dx(interesting_reports):
 
 
 def get_band(freq):
+    """Determine the amateur radioband for a given frequency."""
     if freq > 2300:
         return "GHZ"
     if freq > 144 and freq < 148:
@@ -406,9 +409,7 @@ def get_band(freq):
     else:
         return "UNK"
 
-
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(
                     prog='PSKReporter DX Tools',
                     description="Fetches and analyzes PSKReporter spots for DX",
@@ -417,7 +418,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--fetch', action="store_true", help="Fetch PSKReporter data from the server instead of using the cache.")
     parser.add_argument('--app_contact', default="not-provided", help="Email address to use for PSKReporter API")
     parser.add_argument('--adi', help="Path to your LoTW ADIF file containing log to use for finding useful DX")
-    parser.add_argument('--rx_grids', default=None, help="Comma-separated list of grids to filter reports by")
+    parser.add_argument('--rx_grid', default=None, help="2-character or 4-character grid to filter reports by")
     parser.add_argument('-u', '--url', action='store_true', help="Print PSK URLs for each report")
     parser.add_argument('--modes', default=[]) #TODO: Implement
     parser.add_argument(
@@ -526,7 +527,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         app_contact = args.app_contact.replace('@', '%40')
-        fetch_reports(input_file, app_contact)
+        fetch_reports(input_file, app_contact, grid=args.rx_grid)
 
     reports = load_reports(input_file)
     for r in reports['receptionReport']:
@@ -574,7 +575,7 @@ if __name__ == "__main__":
     )
     print()
     print(
-        '          Code DXCC Name                Mode Freq Band Rank '
+        '          Code DXCC Name                Mode  Freq  Band Rank '
         'Callsign   Grid          Grid'
     )
 
@@ -595,12 +596,12 @@ if __name__ == "__main__":
         mode_str = ",".join(set(mode))
         freq_str = ",".join(set([format(round(f, 3), "6.3f") for f in frequency]))
         band_str = ",".join(set([get_band(f) for f in frequency]))
-        rx_str = ",".join(sorted(rx_locator)[0:20])
+        rx_str = ",".join(sorted(set(rx_locator))[0:20])
 
         print(
             f'Relevant: {tx_dxcc_code.ljust(4)} '
             f'{str(name2dxcc[tx_dxcc_name_strip]).ljust(3)} '
-            f'{tx_dxcc_name.ljust(20)[-20:]} {mode_str} {freq_str} '
+            f'{tx_dxcc_name.ljust(20)[-20:]} {mode_str.ljust(5)} {freq_str} '
             f'{band_str} #{str(rank).ljust(3)} {tx_callsign.ljust(10)} '
             f'{tx_locator} heard in {rx_str}'
         )
