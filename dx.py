@@ -1,20 +1,41 @@
 """Tools for analyzing PSKReporter spots and identifying DX opportunities."""
 
+'''
+WARNING: This script queries the PSKRerporter website.
+The authors of PSKReporter.info request respectful load on their servers.
+
+Please read about the --fetch option and rate limit yourself to avoid any issues.
+
+If you are not respectful of our friends at PSKReporter, they will hunt you down,
+tie you to a chair, and force you to listen to colonoscopy stories on 7.200 MHz
+for the rest of your life.
+
+The original purpose of this script was to decrease the load on the PSKReporter
+servers because having many tabs open at once generates a lot of queries that
+are not really useful, and it could be done with just one query.
+'''
+
 import argparse
 import json
 import sys
 import urllib.request
+from typing import Dict, Any
 
 from adif import ADIFFile
 
+# TODO make band list more exhaustive
 ALL_BANDS = [
-    "13cm", "70cm", "2m", "6m", "10m", "12m", "15m", "17m", "20m",
+    "13cm", "23cm", "70cm", "2m", "6m", "10m", "12m", "15m", "17m", "20m",
     "30m", "40m", "60m", "80m", "160m", "630m", "2200m", "GHZ",
-    "UNK", "0m", "23cm"
+    "UNK", "0m",
+]
+
+# TODO be more pedantic about definition of HF bands
+HF_BANDS = [
+    "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"
 ]
 MAX_DXCC_NUM = 600
-IGNORED_CALLSIGNS = ["D1FF"]
-
+IGNORED_CALLSIGNS = ["D1FF"] # Certian callsigns are annoying and not DX
 
 def dxcc_name_strip(dxcc_input):
     """Strip and normalize DXCC entity names for consistent comparison."""
@@ -34,7 +55,7 @@ def get_pskr_url(callsign, timerange=900):
     )
 
 
-def fetch_reports(tmp_file_path, seconds=60*5, seqno=0, grid="FN"):
+def fetch_reports(tmp_file_path, app_contact, seconds=60*5, grid="FN"):
     """Query PSKReporter for reports and write to file."""
     print("Fetching reports...")
 
@@ -43,7 +64,7 @@ def fetch_reports(tmp_file_path, seconds=60*5, seqno=0, grid="FN"):
         'encap=1&callback=doNothing&statistics=1&noactive=true&'
         f'rronly=true&nolocator=1&flowStartSeconds=-{seconds}&'
         f'modify=grid&receiverCallsign={grid}&'
-        'appcontact=paul.quimby%40gmail.com'
+        'appcontact={app_contact}'
     )
 
     user_agent = (
@@ -73,9 +94,9 @@ def load_reports(tmp_file_path):
         return reports
 
 
-def load_logs(paths):
+def load_logs(paths) -> Dict[int, Dict[str, Dict[str, Any]]]:
     """Load log files and return a dictionary of DXCC status."""
-    dxcc2status = {}
+    dxcc2status: Dict[int, Dict[str, Dict[str, Any]]] = {}
     for i in range(1, MAX_DXCC_NUM):
         dxcc2status[i] = {}
         for band in ALL_BANDS:
@@ -115,7 +136,7 @@ def load_logs(paths):
             if band not in ALL_BANDS:
                 print(f"ERROR!!! UNKNOWN BAND: {band}")
                 sys.exit(1)
-            if not int(my_dxcc_number) == 291:  # TODO: ARG
+            if not int(my_dxcc_number) == args.my_dxcc_num:
                 continue  # skip since I'm a US HAM in my DXCC account
             status = r.get("QSL_RCVD")
             if status == "Y":
@@ -204,13 +225,11 @@ def get_interesting_reports(reports, dxcc2status, bands=None, verbose=False):
             print("!!!")
             sys.exit(1)
         tx_dxcc_number = name2dxcc[tx_dxcc_name]
-        #print(tx_dxcc_number, r)
 
         rank = get_rank(tx_dxcc_code, most_wanted)
         lotw_confirmed = None
         if dxcc2status and band: # ignore null band reports
             if tx_dxcc_number in dxcc2status.keys():
-                #print(f"looking up {tx_dxcc_number}:{band} -> {dxcc2status[tx_dxcc_number][band]}")
                 if band == "UNK":
                     print("Received NON-US band report:")
                     print(r)
@@ -233,27 +252,23 @@ def get_interesting_reports(reports, dxcc2status, bands=None, verbose=False):
             # relevant!
             continue
         if dxcc2status is None:
-            #print("Using fallback logic beacuse no dxcc2status/adi used")
             if not relevant_tx(tx_dxcc_code, most_wanted):
                 continue
 
         # filter out reports not near rx of interest / add info
         if not relevant_rx(rx_locator, args.rx_grids):
             continue
-        #     r["hearable"] = False
-        # else:
-        #     r["hearable"] = True
 
         if bands and band and band not in bands:
             continue
 
         interesting_reports.append(r)
-        #print(f"Adding {r} because {lotw_confirmed} based on {dxcc2status[tx_dxcc_number][band]}")
 
     return (interesting_reports, odd_reports)
 
 
 def get_interesting_dx(interesting_reports):
+    """Extract and organize interesting DX opportunities from reports."""
     interesting_dx = {}
     for r in interesting_reports:
         rx_locator = r["receiverLocator"]
@@ -325,7 +340,7 @@ def get_band(freq):
         return "630m"
     if freq > 0.135 and freq < 0.1378:
         return "2200m"
-    if freq <0.1: # an error
+    if freq < 0.1:  # an error
         return "0m"
     else:
         return "UNK"
@@ -339,9 +354,10 @@ if __name__ == "__main__":
                     epilog='End Transmission')
 
     parser.add_argument('-f', '--fetch', action="store_true")
-    parser.add_argument('--adi')
-    parser.add_argument('--rx_grids', default=None)
-    parser.add_argument('-u', '--url', action='store_true')
+    parser.add_argument('--app_contact', default="not-provided", help="Email address to use for PSKReporter API")
+    parser.add_argument('--adi', help="Path to ADIF file containing log to use for finding useful DX")
+    parser.add_argument('--rx_grids', default=None, help="Comma-separated list of grids to filter reports by")
+    parser.add_argument('-u', '--url', action='store_true', help="Print PSK URLs for each report")
     parser.add_argument('--modes', default=[])
     parser.add_argument(
         '-v', '--verbose',
@@ -349,19 +365,30 @@ if __name__ == "__main__":
         help="Print out details like unusual report data"
     )
     parser.add_argument(
-        '-s',
-        metavar="seqno",
-        help="Sequence number to start fetch for PSKReporter"
+        '--hf',
+        action='store_true',
+        help="Filter reports to HF bands only (160m-6m). Ignored if --bands is specified."
     )
     parser.add_argument(
-        '--dxcc',
-        action='store_true',
-        help="Write out a .dxcc.adi file"
+        '--bands',
+        type=lambda x: [b for b in x.split(',') if b in ALL_BANDS],
+        help="Comma-separated list of bands to filter reports by (must be one of the following: " + ", ".join(ALL_BANDS) + "). Overrides --hf if specified."
+    )
+    parser.add_argument(
+        '--dxcc_file',
+        type=str,
+        help="Write out a debug .adi file at this path containing one example QSL from each DXCC entity from the --adi input log"
     )
     parser.add_argument(
         '-t', '--temp_filename',
         required=True,
         default=".pskr-tmp.xml"
+    )
+    parser.add_argument(
+        '--my_dxcc_num',
+        type=int,
+        default=291,
+        help="DXCC number of the user for filtering, since only home DXCC contacts count. (USA = 291)"
     )
     args = parser.parse_args()
 
@@ -370,7 +397,6 @@ if __name__ == "__main__":
     for line in most_wanted_file:
         items = line.split(" ")
         most_wanted.append(items[1])
-    #print(most_wanted[300:])
 
     dxcc2name = {}
     name2dxcc = {}
@@ -381,31 +407,44 @@ if __name__ == "__main__":
         dxcc_name = dxcc_name_strip(" ".join(items[1:]))
         dxcc2name[dxcc_number] = dxcc_name
         name2dxcc[dxcc_name] = dxcc_number
-    #print(dxcc2name)
 
     dxcc2status = None
-    if args.adi != None:
+    if args.adi is not None:
         dxcc2status = load_logs([args.adi,])
 
     input_file = args.temp_filename
-    seqno = None
-    if "s" in args and args.s != None:
-        seqno = int(args.s)
 
-    dxcc_log = ADIFFile()
-    dxcc_file = open(".dxcc.adi", "w", encoding="utf-8")
-    for v, k in enumerate(dxcc2status):
-        for v2, b in enumerate(dxcc2status[k]):
-            example = dxcc2status[k][b]['lotw-example']
-            if example:
-                dxcc_log.records.append(example)
-    dxcc_log.write(dxcc_file)
-    dxcc_file.close()
-
+    if args.dxcc_file:
+        try:
+            dxcc_log = ADIFFile()
+            with open(args.dxcc_file, "w", encoding="utf-8") as dxcc_out_file:
+                if dxcc2status is not None:
+                    for v, k in enumerate(dxcc2status):
+                        for v2, b in enumerate(dxcc2status[k]):
+                            example = dxcc2status[k][b]['lotw-example']
+                            if example:
+                                dxcc_log.records.append(example)
+                try:
+                    dxcc_log.write(dxcc_out_file)
+                    print(f"Wrote DXCC example QSLs to {args.dxcc_file}")
+                except Exception as e:
+                    print(f"Error writing DXCC file: {e}")
+        except IOError as e:
+            print(f"Error opening DXCC output file {args.dxcc_file}: {e}")
+        except Exception as e:
+            print(f"Unexpected error processing DXCC file: {e}")
     odd_reports = []
 
     if args.fetch:
-        fetch_reports(input_file, seqno=seqno)
+        # Validate app_contact is a valid email address
+        import re
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not hasattr(args, 'app_contact') or not re.match(email_regex, args.app_contact):
+            print("Error: --app-contact must be a valid email address")
+            sys.exit(1)
+
+        app_contact = args.app_contact.replace('@', '%40')
+        fetch_reports(input_file, app_contact)
 
     reports = load_reports(input_file)
     for r in reports['receptionReport']:
@@ -424,13 +463,20 @@ if __name__ == "__main__":
             else:
                 print("UNKNOWN DXCC", rx_dxcc)
 
+    # Determine which bands to filter on
+    filter_bands = None
+    if args.bands:
+        filter_bands = args.bands
+    elif args.hf:
+        filter_bands = HF_BANDS
+    else:
+        filter_bands = ALL_BANDS
+    print(f"Filtering reports for bands: {filter_bands}")
+
     interesting_reports, odd_reports = get_interesting_reports(
         reports,
         dxcc2status,
-        bands=[
-            "160m", "80m", "40m", "30m", "20m",
-            "17m", "15m", "12m", "10m", "6m"
-        ],
+        bands=filter_bands,
         verbose=args.verbose
     )
 
@@ -445,7 +491,6 @@ if __name__ == "__main__":
         f'({round(interesting_report_count*100.0/report_count,1)}%) interesting'
     )
     print()
-
     print(
         '          Code DXCC Name                Mode Freq Band Rank '
         'Callsign   Grid          Grid'
@@ -461,10 +506,22 @@ if __name__ == "__main__":
         mode = r["mode"]
         frequency = r["frequency"]
         band = r["band"]
-        #snr = r['sNR']
         rank = r['rank']
         dxcc_number = name2dxcc[tx_dxcc_name_strip]
-        print(f'Relevant: {tx_dxcc_code.ljust(4)} {str(name2dxcc[tx_dxcc_name_strip]).ljust(3)} {tx_dxcc_name.ljust(20)[-20:]} {",".join(set(mode))} {",".join(set([format(round(f,3),"6.3f") for f in frequency]))} {",".join(set([get_band(f) for f in frequency]))} #{str(rank).ljust(3)} {tx_callsign.ljust(10)} {tx_locator} heard in {",".join(sorted(rx_locator)[0:20])}')
+
+        # Format the output components
+        mode_str = ",".join(set(mode))
+        freq_str = ",".join(set([format(round(f, 3), "6.3f") for f in frequency]))
+        band_str = ",".join(set([get_band(f) for f in frequency]))
+        rx_str = ",".join(sorted(rx_locator)[0:20])
+
+        print(
+            f'Relevant: {tx_dxcc_code.ljust(4)} '
+            f'{str(name2dxcc[tx_dxcc_name_strip]).ljust(3)} '
+            f'{tx_dxcc_name.ljust(20)[-20:]} {mode_str} {freq_str} '
+            f'{band_str} #{str(rank).ljust(3)} {tx_callsign.ljust(10)} '
+            f'{tx_locator} heard in {rx_str}'
+        )
         if args.url:
             print(f"{get_pskr_url(tx_callsign)}")
 
@@ -478,5 +535,5 @@ if __name__ == "__main__":
             summary["senderCallsign"] = callsign
             odd_summary[callsign] = summary
 
-        for k,v in enumerate(odd_summary):
+        for k, v in enumerate(odd_summary):
             print(f"{v}")
