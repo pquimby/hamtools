@@ -11,11 +11,14 @@ Example usage for query without a personal log file:
 Example usage for query with a personal log file:
 ```python3 dx.py --adi my_log.adi -t .temp --rx_grid CM --app_contact your@email --hf --fetch```
 
-## sync.py
+## lotw-sync.py
 
 This script is used to fetch an ADIF file from LoTW and save it to a local file.
 
-Example usage: ```lotw-sync.py -o ~/my_lotw_download.adif --fetch --grid CM87```
+This script requires authentication with LoTW. The authentication details are stored in a file called `lotw_auth.json`.
+There is an example file in the repo.
+
+Example usage: ```lotw-sync.py -o ~/my_lotw_download.adif --fetch --my_grid CM87```
 
 ## potify.py
 

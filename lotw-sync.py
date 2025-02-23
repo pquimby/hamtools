@@ -36,18 +36,18 @@ def lotw_fetch(qso_time_horizon, callsign, details=True):
     USERNAME = auth['USERNAME']
     PASSWORD = auth['PASSWORD']
     CALLSIGN = callsign
-    
+
     print(f'   Identified as "{USERNAME}" + "{CALLSIGN}"')
     print(f'   Password as "{"".join(["*"]*len(PASSWORD))}"')
 
     if details:
         details = "yes"
-    
+
     print(f'Fetching logs from LoTW... at {datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")} local')
-    
+
     qso_qslsince = qso_time_horizon  # updated since
     qso_qsorxsince = qso_time_horizon  # rx since
-    
+
     print(f'Fetching logs since {qso_qsorxsince} updated since {qso_qslsince}')
     start_time = time.time()
     url = 'https://lotw.arrl.org/lotwuser/lotwreport.adi'
@@ -70,7 +70,7 @@ def lotw_fetch(qso_time_horizon, callsign, details=True):
         return None
     except requests.exceptions.ConnectionError:
         print("Error: Failed to connect to LoTW - check your internet connection")
-        return None 
+        return None
     except requests.exceptions.HTTPError as e:
         print(f"Error: HTTP error occurred: {e}")
         return None
@@ -79,39 +79,39 @@ def lotw_fetch(qso_time_horizon, callsign, details=True):
         return None
     end_time = time.time()
     print("   Return: ", r.status_code)
-    
+
     # If failure, bail
     if r.status_code != 200:
         print(r.text)
         print("   [Done]")
         return None
-        
+
     print("   Fetch completed successfully in %0.1f seconds"%(end_time-start_time))
     print("   [Done]")
     return r
-    
+
 
 def fetch_lotw_to_file(temp_filename, since, callsign, details=True):
     """Fetch logs from LoTW and save to a temporary ADIF file."""
     with open(temp_filename, 'w+', encoding='utf-8') as out:
-        raw = lotw_fetch(out, since, callsign, details)
+        raw = lotw_fetch(since, callsign, details)
         if raw is None:
             print("ERROR: Stopping after failed fetch")
             sys.exit(1)
-        
+
         print(f'Starting write to "{temp_filename}" ...')
         found_eoh = False
         for line in raw.text.splitlines(True):
             if "PROGRAMID" in line:
                 found_eoh = True
                 print("   Found header...")
-            
+
             if "<APP_LoTW_EOF>" in line:
                 break
-            
+
             if found_eoh:
                 out.write(line)
-            
+
             if not found_eoh:
                 continue
         print("   [Done]")
@@ -148,7 +148,7 @@ def write_filtered_adif(adif, output_filename, grid_filter):
         with open(output_filename, "w", encoding='utf-8') as f2:
             print(f'   Filtering down to gridsquare: {grid_filter}')
             def grid_filter_func(r):
-                return (r.get("MY_GRIDSQUARE") and 
+                return (r.get("MY_GRIDSQUARE") and
                        grid_filter in r.get("MY_GRIDSQUARE"))
             adif.write(f2, grid_filter_func)
     except FileNotFoundError:
@@ -196,11 +196,11 @@ if __name__ == "__main__":
             "Keep in mind LoTW rate limts the number of fetches you can make."
         )
     )
-    parser.add_argument("--since", default="1970-01-01", help="The date to fetch QSOs after")
-    parser.add_argument("-c", "--callsign", default=None, help="The callsign to fetch QSOs for or leave blank for all")
-    parser.add_argument("-g", "--my_grid", default="", help="The grid square to filter the QSOs by")
+    parser.add_argument("-s", "--since", default="1970-01-01", help="The date after which to fetch QSOs")
+    parser.add_argument("-c", "--callsign", default=None, help="Fetch QSOs for a specific callsign or leave blank for all")
+    parser.add_argument("-g", "--my_grid", default="", help="Filter to only include QSOs from a specific grid square")
     args = parser.parse_args()
-    
+
     temp_filename = args.temp_filename
     output_filename = args.output_filename
     details = args.details
@@ -208,13 +208,13 @@ if __name__ == "__main__":
     fetch = args.fetch
     grid_filter = args.my_grid
     callsign = args.callsign
-    
+
     if fetch:
         fetch_lotw_to_file(temp_filename, since, callsign, details)
     else:
         print("Skipping fetch.")
-    
+
     adif = read_adif_file(temp_filename)
     write_filtered_adif(adif, output_filename, grid_filter)
     print("   [DONE]")
-    
+
