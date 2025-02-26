@@ -93,29 +93,35 @@ def lotw_fetch(qso_time_horizon, callsign, details=True):
 
 def fetch_lotw_to_file(temp_filename, since, callsign, details=True):
     """Fetch logs from LoTW and save to a temporary ADIF file."""
-    with open(temp_filename, 'w+', encoding='utf-8') as out:
-        raw = lotw_fetch(since, callsign, details)
-        if raw is None:
-            print("ERROR: Stopping after failed fetch")
-            sys.exit(1)
+    try:
+        with open(temp_filename, 'w', encoding='utf-8') as out:
+            raw = lotw_fetch(since, callsign, details)
+            if raw is None:
+                print("ERROR: Stopping after failed fetch")
+                sys.exit(1)
 
-        print(f'Starting write to "{temp_filename}" ...')
-        found_eoh = False
-        for line in raw.text.splitlines(True):
-            if "PROGRAMID" in line:
-                found_eoh = True
-                print("   Found header...")
+            print(f'Starting write to "{temp_filename}" ...')
+            found_eoh = False
+            for line in raw.text.splitlines(True):
+                if "PROGRAMID" in line:
+                    found_eoh = True
+                    print("   Found header...")
 
-            if "<APP_LoTW_EOF>" in line:
-                break
+                if "<APP_LoTW_EOF>" in line:
+                    break
 
-            if found_eoh:
-                out.write(line)
+                if found_eoh:
+                    out.write(line)
 
-            if not found_eoh:
-                continue
-        print("   [Done]")
-
+                if not found_eoh:
+                    continue
+            print("   [Done]")
+    except PermissionError:
+        print(f"ERROR: Permission denied accessing {temp_filename}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Unexpected error while handling file: {e}")
+        sys.exit(1)
 
 def read_adif_file(filename):
     """Read and parse an ADIF file, returning ADIFFile object."""
