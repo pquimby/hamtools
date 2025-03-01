@@ -19,9 +19,11 @@ import re
 class ADIFRow:
     """A single row (field) of an ADIF QSO."""
     def __init__(self, string):
+        """Initialize an ADIFRow object."""
         self.string = string
 
     def set(self, field_name, field_data, field_type=None, comment=None):
+        """Set the data for a field name."""
         self.field_name = field_name
         self.field_data = field_data
         self.field_length = len(field_data)
@@ -29,7 +31,7 @@ class ADIFRow:
         self.comment = comment
 
     def parse(self):
-        #<F:L:T>D
+        """Parse the row from its string representation."""
         results = re.search("^<(\w+):(\d+):?(\w+)?>(.*)", self.string)
         if results:
             self.field_name = results.group(1)
@@ -46,6 +48,7 @@ class ADIFRow:
         return True #self.field_length == len(self.field_data[0:])
 
     def __str__(self):
+        """Get the string representation of the row."""
         data = self.field_data
         if self.field_name == "CALL":
             data = data.ljust(8, " ")
@@ -55,23 +58,28 @@ class ADIFRow:
 class ADIFRecord:
     """A single record from an ADIF log containing many rows."""
     def __init__(self):
+        """Initialize an ADIFRecord object."""
         self.rows = []
         self.type = "record"
 
     def __add__(self, row):
+        """Add a row to the record."""
         self.rows.append(row)
         return self
 
     def __len__(self):
+        """Get the number of rows in the record."""
         return len(self.rows)
 
     def get(self, field_name):
+        """Get the data for a field name."""
         for row in self.rows:
             if row.field_name.upper() == field_name.upper():
                 return row.field_data
         return None
 
     def __str__(self):
+        """Get the string representation of the record."""
         result = ""
         for row in self.rows:
             result += str(row) + " "
@@ -82,12 +90,14 @@ class ADIFRecord:
         return result
 
     def remove_except(self, allowed_fields):
+        """Remove all rows except the allowed fields."""
         filter = [f.upper() for f in allowed_fields]
         self.rows = [r for r in self.rows if r.field_name.upper() in filter]
         for r in self.rows:
             r.field_name = r.field_name.upper()
 
     def set(self, field_name, field_data, field_type=None, comment=None):
+        """Set the data for a field name."""
         found = False
         for r in self.rows:
             if r.field_name.upper() == field_name.upper():
@@ -106,20 +116,23 @@ class ADIFRecord:
 class ADIFFile:
     """A collection of ADIF records."""
     def __init__(self):
+        """Initialize an ADIFFile object."""
         self.records = []
 
-    def parse(self, input_file, verbose=False):
+    def parse(self, file_path, verbose=False):
+        """Parse an ADIF file from a given path."""
         current_entry = ADIFRecord()
         input_rows = []
-        for i,row in enumerate(input_file):
+        with open(file_path, 'r') as input_file:
+            for i,row in enumerate(input_file):
             # If format uses single lines, split into multiple lines
-            if row.count("<") > 1:
+                if row.count("<") > 1:
 
-                content = row.replace("<","\n<")
-                for r in content.splitlines():
-                    input_rows.append(r)
-            else:
-                input_rows.append(row)
+                    content = row.replace("<","\n<")
+                    for r in content.splitlines():
+                        input_rows.append(r)
+                else:
+                    input_rows.append(row)
 
         for row in input_rows:
             r = ADIFRow(row)
@@ -147,6 +160,7 @@ class ADIFFile:
                 print(len(r), r)
 
     def write(self, output_file, test=None, verbose=True):
+        """Write an ADIF file to a given path."""
         count = 0
         try:
             for r in self.records:
@@ -161,11 +175,13 @@ class ADIFFile:
             raise
 
     def remove_except(self, allowed_fields):
+        """Remove all rows except the allowed fields."""
         for r in self.records:
             if r.type == "record":
                 r.remove_except(allowed_fields)
 
     def set_all(self, field_name, field_data):
+        """Set the data in one field for all records."""
         for r in self.records:
             if r.type == "record":
                 r.set(field_name, field_data)

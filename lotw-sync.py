@@ -48,7 +48,7 @@ def lotw_fetch(qso_time_horizon, callsign, details=True):
     qso_qslsince = qso_time_horizon  # updated since
     qso_qsorxsince = qso_time_horizon  # rx since
 
-    print(f'Fetching logs since {qso_qsorxsince} updated since {qso_qslsince}')
+    print(f'Fetching logs since {qso_qsorxsince} or updated since {qso_qslsince}')
     start_time = time.time()
     url = 'https://lotw.arrl.org/lotwuser/lotwreport.adi'
     params = {
