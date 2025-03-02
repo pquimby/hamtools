@@ -1,3 +1,9 @@
+# DXCC List
+# This list maps DXCC entity numbers to names.
+# This list is probably incomplete. If you run into an issue, just add a new country or alternate spelling.
+# It is acceptable to have multiple entries for the same country.
+# This list overcomes the limitation of a system that doesn't use the DXCC entity numbers.
+
 1,CANADA
 2,ABU AIL IS
 3,AFGHANISTAN

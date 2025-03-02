@@ -1,3 +1,7 @@
+# This list assigns a rank to various DXCC entities.
+# Please add entries if the script returns an unknown number.
+# It is acceptable to add more than one entry per rank. It will just make the sorting indeterminate.
+
 1. P5 DPRK (NORTH KOREA)
 2. BS7H SCARBOROUGH REEF
 3. CE0X SAN FELIX ISLANDS
