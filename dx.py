@@ -470,6 +470,8 @@ if __name__ == "__main__":
         print(f"Unexpected error opening most_wanted.txt: {e}")
         sys.exit(1)
     for line in most_wanted_file:
+        if line.startswith("#"):
+            continue
         items = line.split(" ")
         most_wanted.append(items[1])
 
@@ -484,12 +486,13 @@ if __name__ == "__main__":
         print(f"Unexpected error opening dxcc.txt: {e}")
         sys.exit(1)
     for line in dxcc_file:
+        if line.startswith("#"):
+            continue
         items = line.split(",")
         dxcc_number = int(items[0])
         dxcc_name = dxcc_name_strip(" ".join(items[1:]))
         dxcc2name[dxcc_number] = dxcc_name
         name2dxcc[dxcc_name] = dxcc_number
-
     dxcc2status = None
     if args.adi is not None:
         dxcc2status = load_logs([args.adi,])
